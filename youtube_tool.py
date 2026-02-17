@@ -52,23 +52,32 @@ def _cookiefile_runtime() -> str | None:
         return None
 
 
-def _opcoes_base_ytdlp(usar_cookies: bool = True) -> dict:
+def _opcoes_base_ytdlp(usar_cookies: bool = True, player_client: str = "android,web") -> dict:
     """Retorna opções base do yt-dlp."""
     opts = {}
     if usar_cookies and YTDLP_USE_COOKIES:
         cookie_runtime = _cookiefile_runtime()
         if cookie_runtime:
             opts["cookiefile"] = cookie_runtime
+    # Usar player clients alternativos para contornar bloqueio do YouTube em VPS
+    if player_client:
+        opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
     return opts
 
 
 def _tentativas_ytdlp() -> list[tuple[str, dict]]:
-    """Monta tentativas com e sem cookies para contornar cookies inválidos/expirados."""
+    """Monta tentativas com diferentes estratégias para contornar bloqueios do YouTube."""
     tentativas = []
-    opts_com_cookies = _opcoes_base_ytdlp(usar_cookies=True)
-    if opts_com_cookies.get("cookiefile"):
-        tentativas.append(("com cookies", opts_com_cookies))
-    tentativas.append(("sem cookies", _opcoes_base_ytdlp(usar_cookies=False)))
+    # 1. Cookies + player client Android (melhor chance em VPS)
+    opts_android = _opcoes_base_ytdlp(usar_cookies=True, player_client="android,web")
+    if opts_android.get("cookiefile"):
+        tentativas.append(("cookies + android client", opts_android))
+    # 2. Cookies + player client web padrão
+    opts_web = _opcoes_base_ytdlp(usar_cookies=True, player_client="")
+    if opts_web.get("cookiefile"):
+        tentativas.append(("cookies + web client", opts_web))
+    # 3. Sem cookies (último recurso)
+    tentativas.append(("sem cookies", _opcoes_base_ytdlp(usar_cookies=False, player_client="android,web")))
     return tentativas
 
 
