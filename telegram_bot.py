@@ -50,11 +50,11 @@ OPTION_LABELS = {
 }
 
 DEFAULT_OPTIONS = {
-    "transcricao": True,
-    "download_720": True,
+    "transcricao": False,
+    "download_720": False,
     "download_1080": True,
-    "melhoria_audio": True,
-    "dublagem_pt": True,
+    "melhoria_audio": False,
+    "dublagem_pt": False,
 }
 
 

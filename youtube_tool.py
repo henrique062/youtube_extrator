@@ -32,6 +32,26 @@ DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloa
 RESOLUTIONS = ["720", "1080"]
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 
+# Caminho do arquivo de cookies (formato Netscape)
+COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+
+
+def _opcoes_base_ytdlp() -> dict:
+    """Retorna opções base do yt-dlp com cookies e configurações anti-bloqueio."""
+    opts = {
+        "extractor_args": {"youtube": {"player_client": ["android,web"]}},
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.022) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Mobile Safari/537.36"
+            ),
+        },
+    }
+    if os.path.exists(COOKIES_FILE):
+        opts["cookiefile"] = COOKIES_FILE
+    return opts
+
 # Caminho do FFmpeg instalado via winget (caso não esteja no PATH)
 FFMPEG_DIR = os.path.join(
     os.environ.get("LOCALAPPDATA", ""),
@@ -180,7 +200,7 @@ def criar_pasta_video(titulo: str) -> str:
 
 def obter_titulo_video(url: str) -> str:
     """Obtém o título do vídeo usando yt-dlp sem baixar."""
-    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    opts = {**_opcoes_base_ytdlp(), "quiet": True, "no_warnings": True, "skip_download": True}
     if FFMPEG_LOCATION:
         opts["ffmpeg_location"] = FFMPEG_LOCATION
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -379,6 +399,7 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
     caminho_saida = os.path.join(pasta_video, f"{nome_arquivo}_{resolucao}p.%(ext)s")
 
     opts = {
+        **_opcoes_base_ytdlp(),
         # Seleciona o melhor vídeo até a resolução + melhor áudio
         "format": f"bestvideo[height<={resolucao}][ext=mp4]+bestaudio[ext=m4a]/"
                   f"bestvideo[height<={resolucao}]+bestaudio/"
