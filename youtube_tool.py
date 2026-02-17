@@ -479,8 +479,14 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
     caminho_saida = os.path.join(pasta_video, f"{nome_arquivo}_{resolucao}p.%(ext)s")
 
     opts_comuns = {
-        # Seleciona melhor vídeo+áudio até a resolução alvo, com fallback amplo.
-        "format": f"bv*[height<={resolucao}]+ba/b[height<={resolucao}]/b",
+        # Seleciona melhor vídeo+áudio até a resolução alvo, com múltiplos fallbacks.
+        "format": (
+            f"bestvideo[height<={resolucao}]+bestaudio/"
+            f"bv*[height<={resolucao}]+ba/"
+            f"best[height<={resolucao}]/"
+            f"bestvideo+bestaudio/"
+            f"best"
+        ),
         "outtmpl": caminho_saida,
         "merge_output_format": "mp4",
         "noplaylist": True,
@@ -520,6 +526,67 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
 
     ULTIMO_ERRO_DOWNLOAD = " | ".join(erros_tentativas[-2:]) if erros_tentativas else (
         f"Download {resolucao}p falhou sem detalhes."
+    )
+    return False
+
+
+def baixar_video_melhor_disponivel(url: str, titulo: str, pasta_video: str) -> bool:
+    """Baixa o vídeo no melhor formato disponível (sem filtro de resolução). Último recurso."""
+    global ULTIMO_ERRO_DOWNLOAD
+    ULTIMO_ERRO_DOWNLOAD = ""
+    print(f"\n Baixando vídeo na melhor qualidade disponível (sem filtro de resolução)...")
+
+    nome_arquivo = sanitizar_nome(titulo)
+    caminho_saida = os.path.join(pasta_video, f"{nome_arquivo}_best.%(ext)s")
+
+    opts_comuns = {
+        "format": "bestvideo+bestaudio/best",
+        "outtmpl": caminho_saida,
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "quiet": False,
+        "no_warnings": False,
+        "progress_hooks": [_hook_progresso],
+    }
+
+    if FFMPEG_LOCATION:
+        opts_comuns["ffmpeg_location"] = FFMPEG_LOCATION
+
+    erros_tentativas = []
+    tentativas = _tentativas_ytdlp()
+    for idx, (rotulo, opts_base) in enumerate(tentativas, start=1):
+        opts = {**opts_base, **opts_comuns}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+
+            # Procurar qualquer vídeo baixado na pasta
+            candidatos = [
+                os.path.join(pasta_video, f)
+                for f in os.listdir(pasta_video)
+                if os.path.isfile(os.path.join(pasta_video, f))
+                and os.path.splitext(f)[1].lower() in VIDEO_EXTENSIONS
+                and "_best" in f.lower()
+            ]
+            arquivo_final = _escolher_maior_arquivo(candidatos)
+            if arquivo_final:
+                tamanho = os.path.getsize(arquivo_final) / (1024 * 1024)
+                print(f"   [OK] Download (melhor disponível) concluído: {arquivo_final} ({tamanho:.1f} MB)")
+                return True
+
+            mensagem = f"Download (melhor disponível) sem arquivo final ({rotulo})"
+            erros_tentativas.append(mensagem)
+            print(f"   [X] {mensagem}.")
+        except Exception as e:
+            resumo = _resumo_erro(e)
+            erros_tentativas.append(f"{rotulo}: {resumo}")
+            print(f"   [X] Erro no download melhor disponível ({rotulo}): {resumo}")
+
+        if idx < len(tentativas):
+            print("       Tentando novamente sem cookies...")
+
+    ULTIMO_ERRO_DOWNLOAD = " | ".join(erros_tentativas[-2:]) if erros_tentativas else (
+        "Download (melhor disponível) falhou sem detalhes."
     )
     return False
 

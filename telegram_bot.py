@@ -30,6 +30,7 @@ from audio_enhancer import encontrar_ffmpeg
 from dubbing import gerar_dublagem
 from youtube_tool import (
     baixar_video,
+    baixar_video_melhor_disponivel,
     criar_pasta_video,
     extrair_video_id,
     get_ultimo_erro_download,
@@ -317,12 +318,40 @@ async def _processar_video_com_opcoes(
                 if ok_720_fb:
                     resultado.video_720 = _encontrar_video_resolucao(pasta_video, nome, "720")
                 else:
-                    erro_fallback = get_ultimo_erro_download()
-                    detalhe = f"\nErro: {erro_fallback}" if erro_fallback else ""
+                    # Último recurso: baixar na melhor qualidade disponível
                     await bot.send_message(
                         chat_id=chat_id,
-                        text="Fallback automático 720p também falhou." + detalhe,
+                        text="720p também falhou. Tentando baixar na melhor qualidade disponível...",
                     )
+                    ok_best = await asyncio.to_thread(
+                        baixar_video_melhor_disponivel, url, titulo, pasta_video
+                    )
+                    if ok_best:
+                        # Procurar o arquivo _best baixado
+                        nome_base = sanitizar_nome(titulo)
+                        best_candidatos = [
+                            os.path.join(pasta_video, f)
+                            for f in os.listdir(pasta_video)
+                            if "_best" in f.lower()
+                            and os.path.splitext(f)[1].lower() in VIDEO_EXTENSIONS
+                        ]
+                        if best_candidatos:
+                            resultado.video_720 = max(
+                                best_candidatos,
+                                key=lambda p: os.path.getsize(p),
+                            )
+                    else:
+                        erro_fallback = get_ultimo_erro_download()
+                        detalhe = f"\nErro: {erro_fallback}" if erro_fallback else ""
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=(
+                                "Todos os formatos falharam." + detalhe
+                                + "\n\n⚠️ Isso geralmente indica que os cookies do YouTube "
+                                "expiraram. Atualize o arquivo cookies.txt com cookies "
+                                "novos exportados do seu navegador."
+                            ),
+                        )
 
     candidatos_base = [
         resultado.video_1080,
