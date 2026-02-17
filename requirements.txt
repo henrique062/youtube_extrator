@@ -1,0 +1,7 @@
+yt-dlp
+youtube-transcript-api
+edge-tts
+flask
+deep-translator
+python-telegram-bot
+gunicorn

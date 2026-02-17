@@ -1,0 +1,12 @@
+.git
+.gitignore
+.venv
+.qodo
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.DS_Store
+
+downloads/
