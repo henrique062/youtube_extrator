@@ -4,9 +4,5 @@ downloads/
 *.pyc
 .env
 
-# Cookies do YouTube (dados sensíveis)
-cookies.txt
-www.youtube.com_cookies.txt
-
 # IDE / ferramentas
 .qodo/
