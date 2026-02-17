@@ -51,13 +51,8 @@ def _cookiefile_runtime() -> str | None:
 
 
 def _opcoes_base_ytdlp() -> dict:
-    """Retorna opções base do yt-dlp com cookies e configurações anti-bloqueio."""
-    opts = {
-        "extractor_args": {"youtube": {"player_client": ["default"]}},
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        },
-    }
+    """Retorna opções base do yt-dlp com cookies."""
+    opts = {}
     cookie_runtime = _cookiefile_runtime()
     if cookie_runtime:
         opts["cookiefile"] = cookie_runtime
