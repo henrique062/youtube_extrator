@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# Atualizar yt-dlp para a versão mais recente (evita erros de formato do YouTube)
+echo "Atualizando yt-dlp..."
+pip install --upgrade yt-dlp 2>/dev/null || echo "Aviso: não foi possível atualizar yt-dlp"
+
 MODE="${APP_MODE:-web}"
 
 case "$MODE" in
