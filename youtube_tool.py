@@ -30,6 +30,7 @@ from dubbing import gerar_dublagem
 # ──────────────────────────────────────────────
 DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
 RESOLUTIONS = ["720", "1080"]
+VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 
 # Caminho do FFmpeg instalado via winget (caso não esteja no PATH)
 FFMPEG_DIR = os.path.join(
@@ -109,6 +110,63 @@ def sanitizar_nome(nome: str) -> str:
     nome = re.sub(r'[\\/*?:"<>|]', "", nome)
     nome = nome.strip(". ")
     return nome[:150] if nome else "video"
+
+
+def _escolher_maior_arquivo(candidatos: list[str]) -> str | None:
+    """Retorna o maior arquivo existente da lista."""
+    validos = [c for c in candidatos if c and os.path.exists(c)]
+    if not validos:
+        return None
+    return max(validos, key=lambda p: (os.path.getsize(p), os.path.getmtime(p)))
+
+
+def _encontrar_video_baixado(pasta_video: str, nome_base: str, resolucao: str) -> str | None:
+    """Encontra arquivo final de vídeo para uma resolução, com fallback por extensão/nome."""
+    prefixo = f"{nome_base}_{resolucao}p"
+
+    candidatos_exatos = [
+        os.path.join(pasta_video, f"{prefixo}{ext}")
+        for ext in VIDEO_EXTENSIONS
+    ]
+    achado = _escolher_maior_arquivo(candidatos_exatos)
+    if achado:
+        return achado
+
+    try:
+        arquivos = os.listdir(pasta_video)
+    except OSError:
+        return None
+
+    candidatos_prefixo = []
+    for f in arquivos:
+        caminho = os.path.join(pasta_video, f)
+        if not os.path.isfile(caminho):
+            continue
+        nome_lower = f.lower()
+        ext = os.path.splitext(nome_lower)[1]
+        if ext not in VIDEO_EXTENSIONS:
+            continue
+        if nome_lower.startswith(prefixo.lower()):
+            candidatos_prefixo.append(caminho)
+
+    achado = _escolher_maior_arquivo(candidatos_prefixo)
+    if achado:
+        return achado
+
+    candidatos_por_tag = []
+    tag = f"_{resolucao}p"
+    for f in arquivos:
+        caminho = os.path.join(pasta_video, f)
+        if not os.path.isfile(caminho):
+            continue
+        nome_lower = f.lower()
+        ext = os.path.splitext(nome_lower)[1]
+        if ext not in VIDEO_EXTENSIONS:
+            continue
+        if tag in nome_lower:
+            candidatos_por_tag.append(caminho)
+
+    return _escolher_maior_arquivo(candidatos_por_tag)
 
 
 def criar_pasta_video(titulo: str) -> str:
@@ -340,20 +398,15 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
 
-        # Verificar se o arquivo foi criado
-        arquivo_final = os.path.join(pasta_video, f"{nome_arquivo}_{resolucao}p.mp4")
-        if os.path.exists(arquivo_final):
+        # Verificar se o arquivo final foi realmente gerado
+        arquivo_final = _encontrar_video_baixado(pasta_video, nome_arquivo, resolucao)
+        if arquivo_final:
             tamanho = os.path.getsize(arquivo_final) / (1024 * 1024)
             print(f"   [OK] Download {resolucao}p concluído: {arquivo_final} ({tamanho:.1f} MB)")
-        else:
-            # Procurar qualquer arquivo que corresponda ao padrão
-            for f in os.listdir(pasta_video):
-                if f.startswith(f"{nome_arquivo}_{resolucao}p"):
-                    caminho_completo = os.path.join(pasta_video, f)
-                    tamanho = os.path.getsize(caminho_completo) / (1024 * 1024)
-                    print(f"   [OK] Download {resolucao}p concluído: {f} ({tamanho:.1f} MB)")
-                    break
-        return True
+            return True
+
+        print(f"   [X] Download {resolucao}p terminou, mas o arquivo final não foi encontrado.")
+        return False
 
     except Exception as e:
         print(f"   [X] Erro no download {resolucao}p: {e}")

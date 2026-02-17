@@ -39,6 +39,7 @@ from youtube_tool import (
 
 UPLOAD_LIMIT_BYTES = 49 * 1024 * 1024
 YOUTUBE_URL_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
+VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 
 OPTION_LABELS = {
     "transcricao": "Transcrição",
@@ -65,6 +66,90 @@ class ResultadoProcessamento:
     video_1080: Optional[str] = None
     video_melhorado: Optional[str] = None
     video_dublado: Optional[str] = None
+
+
+def _listar_videos_pasta(pasta_video: str) -> list[str]:
+    """Lista arquivos de vídeo válidos em uma pasta."""
+    if not os.path.isdir(pasta_video):
+        return []
+
+    videos = []
+    for nome in os.listdir(pasta_video):
+        caminho = os.path.join(pasta_video, nome)
+        if not os.path.isfile(caminho):
+            continue
+        if os.path.splitext(nome)[1].lower() in VIDEO_EXTENSIONS:
+            videos.append(caminho)
+    return videos
+
+
+def _escolher_maior_arquivo(candidatos: list[str]) -> Optional[str]:
+    """Escolhe o maior arquivo (com desempate por data de modificação)."""
+    validos = [c for c in candidatos if c and os.path.exists(c)]
+    if not validos:
+        return None
+    return max(validos, key=lambda p: (os.path.getsize(p), os.path.getmtime(p)))
+
+
+def _encontrar_video_resolucao(pasta_video: str, nome_base: str, resolucao: str) -> Optional[str]:
+    """
+    Encontra o vídeo baixado para uma resolução mesmo quando o yt-dlp altera extensão/nome.
+    """
+    prefixo = f"{nome_base}_{resolucao}p"
+
+    candidatos_exatos = [
+        os.path.join(pasta_video, f"{prefixo}{ext}")
+        for ext in VIDEO_EXTENSIONS
+    ]
+    achado = _escolher_maior_arquivo(candidatos_exatos)
+    if achado:
+        return achado
+
+    videos = _listar_videos_pasta(pasta_video)
+    candidatos_prefixo = [
+        p for p in videos
+        if os.path.basename(p).lower().startswith(prefixo.lower())
+    ]
+    achado = _escolher_maior_arquivo(candidatos_prefixo)
+    if achado:
+        return achado
+
+    candidatos_por_tag = [
+        p for p in videos
+        if f"_{resolucao}p" in os.path.basename(p).lower()
+    ]
+    return _escolher_maior_arquivo(candidatos_por_tag)
+
+
+def _selecionar_video_final(resultado: ResultadoProcessamento) -> Optional[str]:
+    """
+    Seleciona o melhor arquivo para envio ao Telegram.
+    """
+    prioridade_direta = [
+        resultado.video_dublado,
+        resultado.video_melhorado,
+        resultado.video_1080,
+        resultado.video_720,
+    ]
+    for candidato in prioridade_direta:
+        if candidato and os.path.exists(candidato):
+            return candidato
+
+    videos = _listar_videos_pasta(resultado.pasta_video)
+    if not videos:
+        return None
+
+    prioridades = ["_dublado_pt", "_audio_melhorado", "_1080p", "_720p"]
+    for marcador in prioridades:
+        candidatos = [
+            p for p in videos
+            if marcador in os.path.basename(p).lower()
+        ]
+        achado = _escolher_maior_arquivo(candidatos)
+        if achado:
+            return achado
+
+    return _escolher_maior_arquivo(videos)
 
 
 def _teclado_opcoes(opcoes: Dict[str, bool]) -> InlineKeyboardMarkup:
@@ -206,23 +291,29 @@ async def _processar_video_com_opcoes(
         await bot.send_message(chat_id=chat_id, text="Baixando vídeo 720p...")
         ok_720 = await asyncio.to_thread(baixar_video, url, titulo, "720", pasta_video)
         if ok_720:
-            candidato = os.path.join(pasta_video, f"{nome}_720p.mp4")
-            if os.path.exists(candidato):
-                resultado.video_720 = candidato
+            resultado.video_720 = _encontrar_video_resolucao(pasta_video, nome, "720")
+            if not resultado.video_720:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text="Download 720p concluído, mas não identifiquei o arquivo final.",
+                )
 
     if opcoes.get("download_1080", False):
         await bot.send_message(chat_id=chat_id, text="Baixando vídeo 1080p...")
         ok_1080 = await asyncio.to_thread(baixar_video, url, titulo, "1080", pasta_video)
         if ok_1080:
-            candidato = os.path.join(pasta_video, f"{nome}_1080p.mp4")
-            if os.path.exists(candidato):
-                resultado.video_1080 = candidato
+            resultado.video_1080 = _encontrar_video_resolucao(pasta_video, nome, "1080")
+            if not resultado.video_1080:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text="Download 1080p concluído, mas não identifiquei o arquivo final.",
+                )
 
     candidatos_base = [
         resultado.video_1080,
         resultado.video_720,
-        os.path.join(pasta_video, f"{nome}_1080p.mp4"),
-        os.path.join(pasta_video, f"{nome}_720p.mp4"),
+        _encontrar_video_resolucao(pasta_video, nome, "1080"),
+        _encontrar_video_resolucao(pasta_video, nome, "720"),
     ]
     video_base = next((p for p in candidatos_base if p and os.path.exists(p)), None)
 
@@ -281,18 +372,21 @@ async def _executar_job(
             ),
         )
 
-        arquivo_envio = (
-            resultado.video_dublado
-            or resultado.video_melhorado
-            or resultado.video_1080
-            or resultado.video_720
-        )
+        arquivo_envio = _selecionar_video_final(resultado)
         if arquivo_envio and os.path.exists(arquivo_envio):
             await _enviar_video_ao_chat(bot, chat_id, arquivo_envio, resultado.titulo)
         else:
+            arquivos_pasta = sorted(
+                os.path.basename(p)
+                for p in _listar_videos_pasta(resultado.pasta_video)
+            )
+            detalhe = (
+                f"\nArquivos encontrados: {', '.join(arquivos_pasta)}"
+                if arquivos_pasta else ""
+            )
             await bot.send_message(
                 chat_id=chat_id,
-                text="Processo finalizado, mas não encontrei arquivo de vídeo para envio.",
+                text="Processo finalizado, mas não encontrei arquivo de vídeo para envio." + detalhe,
             )
     except Exception as e:
         await bot.send_message(chat_id=chat_id, text=f"Erro durante processamento: {e}")
