@@ -436,6 +436,14 @@ async def _executar_job(
             try:
                 import yt_dlp
                 detalhe += f"\nyt-dlp versão: {yt_dlp.version.__version__}"
+                
+                # Info de rede
+                proxy_usado = os.getenv("YTDLP_PROXY")
+                ipv6_forced = os.getenv("YTDLP_FORCE_IPV6", "0").strip().lower() in {"1", "true", "yes", "on"}
+                if proxy_usado:
+                    detalhe += f"\nProxy: Ativo (mascarado)"
+                if ipv6_forced:
+                    detalhe += f"\nIPv6 Forçado: Sim"
             except Exception:
                 pass
             await bot.send_message(

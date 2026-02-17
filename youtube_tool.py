@@ -36,7 +36,8 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 # Caminho do arquivo de cookies (formato Netscape)
 COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 ULTIMO_ERRO_DOWNLOAD = ""
-YTDLP_USE_COOKIES = os.getenv("YTDLP_USE_COOKIES", "1").strip().lower() not in {"0", "false", "no", "off"}
+YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
+YTDLP_FORCE_IPV6 = os.getenv("YTDLP_FORCE_IPV6", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _cookiefile_runtime() -> str | None:
@@ -59,6 +60,17 @@ def _opcoes_base_ytdlp(usar_cookies: bool = True) -> dict:
         cookie_runtime = _cookiefile_runtime()
         if cookie_runtime:
             opts["cookiefile"] = cookie_runtime
+    
+    # Suporte a Proxy (ex: http://user:pass@host:port)
+    if YTDLP_PROXY:
+        opts["proxy"] = YTDLP_PROXY
+        
+    # Forçar IPv6 (útil na Hetzner onde IPv4 é bloqueado)
+    if YTDLP_FORCE_IPV6:
+        opts["source_address"] = "::"
+        opts["force_ipv4"] = False
+        opts["force_ipv6"] = True
+        
     return opts
 
 
