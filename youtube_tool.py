@@ -417,10 +417,12 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
 
     opts = {
         **_opcoes_base_ytdlp(),
-        # Seleciona o melhor vídeo até a resolução + melhor áudio
+        # Seleciona o melhor vídeo até a resolução + melhor áudio, com fallbacks amplos
         "format": f"bestvideo[height<={resolucao}][ext=mp4]+bestaudio[ext=m4a]/"
                   f"bestvideo[height<={resolucao}]+bestaudio/"
-                  f"best[height<={resolucao}]",
+                  f"best[height<={resolucao}]/"
+                  f"bestvideo+bestaudio/"
+                  f"best",
         "outtmpl": caminho_saida,
         "merge_output_format": "mp4",
         "quiet": False,
