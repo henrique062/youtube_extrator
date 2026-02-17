@@ -39,7 +39,7 @@ COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies
 def _opcoes_base_ytdlp() -> dict:
     """Retorna opções base do yt-dlp com cookies e configurações anti-bloqueio."""
     opts = {
-        "extractor_args": {"youtube": {"player_client": ["android,web"]}},
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.022) "
