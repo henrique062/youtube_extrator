@@ -34,15 +34,33 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 
 # Caminho do arquivo de cookies (formato Netscape)
 COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+ULTIMO_ERRO_DOWNLOAD = ""
+
+
+def _cookiefile_runtime() -> str | None:
+    """Copia cookies para /tmp para evitar erro de escrita em volume read-only."""
+    try:
+        if not os.path.isfile(COOKIES_FILE):
+            return None
+        destino = "/tmp/ytdlp_cookies.txt"
+        with open(COOKIES_FILE, "r", encoding="utf-8", errors="ignore") as src, open(destino, "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        return destino
+    except Exception:
+        return None
 
 
 def _opcoes_base_ytdlp() -> dict:
     """Retorna opções base do yt-dlp com cookies e configurações anti-bloqueio."""
-    opts = {}
-    if os.path.exists(COOKIES_FILE):
-        opts["cookiefile"] = COOKIES_FILE
-    else:
-        opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+    opts = {
+        "extractor_args": {"youtube": {"player_client": ["web", "web_safari", "tv"]}},
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        },
+    }
+    cookie_runtime = _cookiefile_runtime()
+    if cookie_runtime:
+        opts["cookiefile"] = cookie_runtime
     return opts
 
 # Caminho do FFmpeg instalado via winget (caso não esteja no PATH)
@@ -384,8 +402,14 @@ def obter_transcricao(video_id: str, titulo: str, pasta_video: str) -> dict | No
 # ──────────────────────────────────────────────
 # Download de Vídeo
 # ──────────────────────────────────────────────
+def get_ultimo_erro_download() -> str:
+    return ULTIMO_ERRO_DOWNLOAD
+
+
 def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> bool:
     """Baixa o vídeo na resolução especificada. Retorna True se bem-sucedido."""
+    global ULTIMO_ERRO_DOWNLOAD
+    ULTIMO_ERRO_DOWNLOAD = ""
     print(f"\n Baixando vídeo em {resolucao}p...")
 
     nome_arquivo = sanitizar_nome(titulo)
@@ -419,10 +443,12 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
             print(f"   [OK] Download {resolucao}p concluído: {arquivo_final} ({tamanho:.1f} MB)")
             return True
 
+        ULTIMO_ERRO_DOWNLOAD = f"Download {resolucao}p terminou sem arquivo final"
         print(f"   [X] Download {resolucao}p terminou, mas o arquivo final não foi encontrado.")
         return False
 
     except Exception as e:
+        ULTIMO_ERRO_DOWNLOAD = str(e)
         print(f"   [X] Erro no download {resolucao}p: {e}")
         return False
 

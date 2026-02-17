@@ -32,6 +32,7 @@ from youtube_tool import (
     baixar_video,
     criar_pasta_video,
     extrair_video_id,
+    get_ultimo_erro_download,
     obter_titulo_video,
     obter_transcricao,
     sanitizar_nome,
@@ -308,6 +309,13 @@ async def _processar_video_com_opcoes(
                     chat_id=chat_id,
                     text="Download 1080p concluído, mas não identifiquei o arquivo final.",
                 )
+        else:
+            # fallback automático para 720p quando 1080 falhar
+            if not opcoes.get("download_720", False):
+                await bot.send_message(chat_id=chat_id, text="1080p indisponível. Tentando fallback automático em 720p...")
+                ok_720_fb = await asyncio.to_thread(baixar_video, url, titulo, "720", pasta_video)
+                if ok_720_fb:
+                    resultado.video_720 = _encontrar_video_resolucao(pasta_video, nome, "720")
 
     candidatos_base = [
         resultado.video_1080,
@@ -380,10 +388,13 @@ async def _executar_job(
                 os.path.basename(p)
                 for p in _listar_videos_pasta(resultado.pasta_video)
             )
+            erro_download = get_ultimo_erro_download()
             detalhe = (
                 f"\nArquivos encontrados: {', '.join(arquivos_pasta)}"
-                if arquivos_pasta else ""
+                if arquivos_pasta else "\nArquivos encontrados: nenhum"
             )
+            if erro_download:
+                detalhe += f"\nÚltimo erro do yt-dlp: {erro_download}"
             await bot.send_message(
                 chat_id=chat_id,
                 text="Processo finalizado, mas não encontrei arquivo de vídeo para envio." + detalhe,
