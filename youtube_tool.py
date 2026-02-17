@@ -53,7 +53,7 @@ def _cookiefile_runtime() -> str | None:
 def _opcoes_base_ytdlp() -> dict:
     """Retorna opções base do yt-dlp com cookies e configurações anti-bloqueio."""
     opts = {
-        "extractor_args": {"youtube": {"player_client": ["web", "web_safari", "tv"]}},
+        "extractor_args": {"youtube": {"player_client": ["default"]}},
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         },
@@ -411,6 +411,23 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
     global ULTIMO_ERRO_DOWNLOAD
     ULTIMO_ERRO_DOWNLOAD = ""
     print(f"\n Baixando vídeo em {resolucao}p...")
+    print(f"   yt-dlp versão: {yt_dlp.version.__version__}")
+
+    # Diagnóstico: listar formatos disponíveis
+    try:
+        diag_opts = {**_opcoes_base_ytdlp(), "quiet": True, "no_warnings": True, "skip_download": True}
+        if FFMPEG_LOCATION:
+            diag_opts["ffmpeg_location"] = FFMPEG_LOCATION
+        with yt_dlp.YoutubeDL(diag_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formatos = info.get("formats", [])
+            if formatos:
+                alturas = sorted(set(f.get("height") for f in formatos if f.get("height")))
+                print(f"   Resoluções disponíveis: {alturas}")
+            else:
+                print("   AVISO: Nenhum formato encontrado na extração de info!")
+    except Exception as e:
+        print(f"   AVISO: Não foi possível listar formatos: {e}")
 
     nome_arquivo = sanitizar_nome(titulo)
     caminho_saida = os.path.join(pasta_video, f"{nome_arquivo}_{resolucao}p.%(ext)s")

@@ -395,6 +395,11 @@ async def _executar_job(
             )
             if erro_download:
                 detalhe += f"\nÚltimo erro do yt-dlp: {erro_download}"
+            try:
+                import yt_dlp
+                detalhe += f"\nyt-dlp versão: {yt_dlp.version.__version__}"
+            except Exception:
+                pass
             await bot.send_message(
                 chat_id=chat_id,
                 text="Processo finalizado, mas não encontrei arquivo de vídeo para envio." + detalhe,
