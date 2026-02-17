@@ -16,6 +16,7 @@ import re
 import socket
 import sys
 from datetime import datetime
+from typing import Any, Callable
 from urllib.parse import urlparse, parse_qs
 
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -35,6 +36,7 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 # Caminho do arquivo de cookies (formato Netscape)
 COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 ULTIMO_ERRO_DOWNLOAD = ""
+YTDLP_USE_COOKIES = os.getenv("YTDLP_USE_COOKIES", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _cookiefile_runtime() -> str | None:
@@ -50,13 +52,56 @@ def _cookiefile_runtime() -> str | None:
         return None
 
 
-def _opcoes_base_ytdlp() -> dict:
-    """Retorna opções base do yt-dlp com cookies."""
+def _opcoes_base_ytdlp(usar_cookies: bool = True) -> dict:
+    """Retorna opções base do yt-dlp."""
     opts = {}
-    cookie_runtime = _cookiefile_runtime()
-    if cookie_runtime:
-        opts["cookiefile"] = cookie_runtime
+    if usar_cookies and YTDLP_USE_COOKIES:
+        cookie_runtime = _cookiefile_runtime()
+        if cookie_runtime:
+            opts["cookiefile"] = cookie_runtime
     return opts
+
+
+def _tentativas_ytdlp() -> list[tuple[str, dict]]:
+    """Monta tentativas com e sem cookies para contornar cookies inválidos/expirados."""
+    tentativas = []
+    opts_com_cookies = _opcoes_base_ytdlp(usar_cookies=True)
+    if opts_com_cookies.get("cookiefile"):
+        tentativas.append(("com cookies", opts_com_cookies))
+    tentativas.append(("sem cookies", _opcoes_base_ytdlp(usar_cookies=False)))
+    return tentativas
+
+
+def _resumo_erro(exc: Exception) -> str:
+    mensagem = str(exc).strip()
+    return mensagem if mensagem else exc.__class__.__name__
+
+
+def _executar_ytdlp_com_tentativas(
+    opts_comuns: dict,
+    executor: Callable[[yt_dlp.YoutubeDL], Any],
+    contexto: str,
+):
+    """Executa uma operação do yt-dlp com fallback automático sem cookies."""
+    tentativas = _tentativas_ytdlp()
+    ultimo_erro = None
+
+    for idx, (rotulo, opts_base) in enumerate(tentativas, start=1):
+        opts = {**opts_base, **opts_comuns}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return executor(ydl)
+        except Exception as exc:
+            ultimo_erro = exc
+            if idx < len(tentativas):
+                print(
+                    f"   [!] Falha em {contexto} ({rotulo}): {_resumo_erro(exc)}\n"
+                    "       Tentando novamente sem cookies..."
+                )
+
+    if ultimo_erro:
+        raise ultimo_erro
+    raise RuntimeError(f"Nenhuma tentativa de yt-dlp foi executada para: {contexto}")
 
 # Caminho do FFmpeg instalado via winget (caso não esteja no PATH)
 FFMPEG_DIR = os.path.join(
@@ -206,12 +251,15 @@ def criar_pasta_video(titulo: str) -> str:
 
 def obter_titulo_video(url: str) -> str:
     """Obtém o título do vídeo usando yt-dlp sem baixar."""
-    opts = {**_opcoes_base_ytdlp(), "quiet": True, "no_warnings": True, "skip_download": True}
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
     if FFMPEG_LOCATION:
         opts["ffmpeg_location"] = FFMPEG_LOCATION
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        return info.get("title", "video")
+    info = _executar_ytdlp_com_tentativas(
+        opts,
+        lambda ydl: ydl.extract_info(url, download=False),
+        "obtenção do título",
+    )
+    return info.get("title", "video")
 
 
 # ──────────────────────────────────────────────
@@ -410,33 +458,32 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
 
     # Diagnóstico: listar formatos disponíveis
     try:
-        diag_opts = {**_opcoes_base_ytdlp(), "quiet": True, "no_warnings": True, "skip_download": True}
+        diag_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
         if FFMPEG_LOCATION:
             diag_opts["ffmpeg_location"] = FFMPEG_LOCATION
-        with yt_dlp.YoutubeDL(diag_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            formatos = info.get("formats", [])
-            if formatos:
-                alturas = sorted(set(f.get("height") for f in formatos if f.get("height")))
-                print(f"   Resoluções disponíveis: {alturas}")
-            else:
-                print("   AVISO: Nenhum formato encontrado na extração de info!")
+        info = _executar_ytdlp_com_tentativas(
+            diag_opts,
+            lambda ydl: ydl.extract_info(url, download=False),
+            "diagnóstico de formatos",
+        )
+        formatos = info.get("formats", [])
+        if formatos:
+            alturas = sorted(set(f.get("height") for f in formatos if f.get("height")))
+            print(f"   Resoluções disponíveis: {alturas}")
+        else:
+            print("   AVISO: Nenhum formato encontrado na extração de info!")
     except Exception as e:
         print(f"   AVISO: Não foi possível listar formatos: {e}")
 
     nome_arquivo = sanitizar_nome(titulo)
     caminho_saida = os.path.join(pasta_video, f"{nome_arquivo}_{resolucao}p.%(ext)s")
 
-    opts = {
-        **_opcoes_base_ytdlp(),
-        # Seleciona o melhor vídeo até a resolução + melhor áudio, com fallbacks amplos
-        "format": f"bestvideo[height<={resolucao}][ext=mp4]+bestaudio[ext=m4a]/"
-                  f"bestvideo[height<={resolucao}]+bestaudio/"
-                  f"best[height<={resolucao}]/"
-                  f"bestvideo+bestaudio/"
-                  f"best",
+    opts_comuns = {
+        # Seleciona melhor vídeo+áudio até a resolução alvo, com fallback amplo.
+        "format": f"bv*[height<={resolucao}]+ba/b[height<={resolucao}]/b",
         "outtmpl": caminho_saida,
         "merge_output_format": "mp4",
+        "noplaylist": True,
         "quiet": False,
         "no_warnings": False,
         "progress_hooks": [_hook_progresso],
@@ -444,27 +491,37 @@ def baixar_video(url: str, titulo: str, resolucao: str, pasta_video: str) -> boo
 
     # Adicionar caminho do FFmpeg se necessário
     if FFMPEG_LOCATION:
-        opts["ffmpeg_location"] = FFMPEG_LOCATION
+        opts_comuns["ffmpeg_location"] = FFMPEG_LOCATION
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([url])
+    erros_tentativas = []
+    tentativas = _tentativas_ytdlp()
+    for idx, (rotulo, opts_base) in enumerate(tentativas, start=1):
+        opts = {**opts_base, **opts_comuns}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
 
-        # Verificar se o arquivo final foi realmente gerado
-        arquivo_final = _encontrar_video_baixado(pasta_video, nome_arquivo, resolucao)
-        if arquivo_final:
-            tamanho = os.path.getsize(arquivo_final) / (1024 * 1024)
-            print(f"   [OK] Download {resolucao}p concluído: {arquivo_final} ({tamanho:.1f} MB)")
-            return True
+            arquivo_final = _encontrar_video_baixado(pasta_video, nome_arquivo, resolucao)
+            if arquivo_final:
+                tamanho = os.path.getsize(arquivo_final) / (1024 * 1024)
+                print(f"   [OK] Download {resolucao}p concluído: {arquivo_final} ({tamanho:.1f} MB)")
+                return True
 
-        ULTIMO_ERRO_DOWNLOAD = f"Download {resolucao}p terminou sem arquivo final"
-        print(f"   [X] Download {resolucao}p terminou, mas o arquivo final não foi encontrado.")
-        return False
+            mensagem = f"Download {resolucao}p sem arquivo final ({rotulo})"
+            erros_tentativas.append(mensagem)
+            print(f"   [X] {mensagem}.")
+        except Exception as e:
+            resumo = _resumo_erro(e)
+            erros_tentativas.append(f"{rotulo}: {resumo}")
+            print(f"   [X] Erro no download {resolucao}p ({rotulo}): {resumo}")
 
-    except Exception as e:
-        ULTIMO_ERRO_DOWNLOAD = str(e)
-        print(f"   [X] Erro no download {resolucao}p: {e}")
-        return False
+        if idx < len(tentativas):
+            print("       Tentando novamente sem cookies...")
+
+    ULTIMO_ERRO_DOWNLOAD = " | ".join(erros_tentativas[-2:]) if erros_tentativas else (
+        f"Download {resolucao}p falhou sem detalhes."
+    )
+    return False
 
 
 def _hook_progresso(d):

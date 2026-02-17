@@ -316,6 +316,13 @@ async def _processar_video_com_opcoes(
                 ok_720_fb = await asyncio.to_thread(baixar_video, url, titulo, "720", pasta_video)
                 if ok_720_fb:
                     resultado.video_720 = _encontrar_video_resolucao(pasta_video, nome, "720")
+                else:
+                    erro_fallback = get_ultimo_erro_download()
+                    detalhe = f"\nErro: {erro_fallback}" if erro_fallback else ""
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="Fallback automático 720p também falhou." + detalhe,
+                    )
 
     candidatos_base = [
         resultado.video_1080,
@@ -371,17 +378,16 @@ async def _executar_job(
         if not resultado:
             return
 
-        await bot.send_message(
-            chat_id=chat_id,
-            text=(
-                "Concluído.\n"
-                f"Título: {resultado.titulo}\n"
-                f"Pasta: {resultado.pasta_video}"
-            ),
-        )
-
         arquivo_envio = _selecionar_video_final(resultado)
         if arquivo_envio and os.path.exists(arquivo_envio):
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "Concluído.\n"
+                    f"Título: {resultado.titulo}\n"
+                    f"Pasta: {resultado.pasta_video}"
+                ),
+            )
             await _enviar_video_ao_chat(bot, chat_id, arquivo_envio, resultado.titulo)
         else:
             arquivos_pasta = sorted(
@@ -390,8 +396,11 @@ async def _executar_job(
             )
             erro_download = get_ultimo_erro_download()
             detalhe = (
+                f"\nTítulo: {resultado.titulo}"
+                f"\nPasta: {resultado.pasta_video}"
                 f"\nArquivos encontrados: {', '.join(arquivos_pasta)}"
-                if arquivos_pasta else "\nArquivos encontrados: nenhum"
+                if arquivos_pasta else
+                f"\nTítulo: {resultado.titulo}\nPasta: {resultado.pasta_video}\nArquivos encontrados: nenhum"
             )
             if erro_download:
                 detalhe += f"\nÚltimo erro do yt-dlp: {erro_download}"
@@ -494,6 +503,9 @@ async def callback_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         opcoes_exec = dict(opcoes)
         url_exec = str(url)
+        if not any(opcoes_exec.values()):
+            await query.answer("Selecione pelo menos uma opção.", show_alert=True)
+            return
 
         context.user_data.pop("pending_options", None)
         context.user_data.pop("pending_url", None)
