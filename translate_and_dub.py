@@ -179,7 +179,7 @@ def traduzir_transcricao_para_dublagem(arquivo_transcricao: str, pasta_video: st
     print("\n[4/4] Gerando dublagem...")
     ffmpeg_dir = encontrar_ffmpeg()
     if ffmpeg_dir:
-        ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+        ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     else:
         ffmpeg_path = "ffmpeg"
 
@@ -200,18 +200,15 @@ def traduzir_transcricao_para_dublagem(arquivo_transcricao: str, pasta_video: st
 
 
 if __name__ == "__main__":
-    # Configurar caminhos
-    pasta_video = r"D:\1 - Projetos pessoais\youtube_extrator\downloads\17-02-26 I Built My Second Brain with Claude Code + Obsidian + Skills (Here's How)"
+    import sys
 
-    arquivo_transcricao = os.path.join(
-        pasta_video,
-        "I Built My Second Brain with Claude Code + Obsidian + Skills (Here's How)_transcricao_original.txt"
-    )
+    if len(sys.argv) < 4:
+        print("Uso: python translate_and_dub.py <pasta_video> <arquivo_transcricao> <video_path>")
+        sys.exit(1)
 
-    video_path = os.path.join(
-        pasta_video,
-        "I Built My Second Brain with Claude Code + Obsidian + Skills (Here's How)_1080p_audio_melhorado.mp4"
-    )
+    pasta_video = sys.argv[1]
+    arquivo_transcricao = sys.argv[2]
+    video_path = sys.argv[3]
 
     # Verificar se arquivos existem
     if not os.path.exists(arquivo_transcricao):
@@ -230,3 +227,4 @@ if __name__ == "__main__":
         print("SUCESSO! Vídeo dublado gerado:")
         print(resultado)
         print("=" * 60)
+

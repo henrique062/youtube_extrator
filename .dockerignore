@@ -2,11 +2,18 @@
 .gitignore
 .venv
 .qodo
+.gemini
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.log
 .DS_Store
+.env
 
 downloads/
+tests/
+
+# Cookies devem ser montados via volume, não copiados na imagem
+cookies.txt
+www.youtube.com_cookies.txt
